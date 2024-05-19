@@ -14,17 +14,17 @@
 
 use crate::socket_adapter::SocketAdapter;
 use log::{debug, error, trace};
-use qws;
-use qws::{CloseCode, Handshake};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, SendError, Sender};
+use ws;
+use ws::{CloseCode, Handshake};
 
 enum Message {
     StringMessage(String),
     Connected,
-    Error(qws::Error),
+    Error(ws::Error),
 }
 
 pub struct WebSocketAdapter {
@@ -33,7 +33,7 @@ pub struct WebSocketAdapter {
     on_received: Option<Box<dyn Fn(Result<String, WebSocketAdapterError>) + Send + 'static>>,
 
     rx_message: Option<Receiver<Message>>,
-    tx_message: Option<qws::Sender>,
+    tx_message: Option<ws::Sender>,
 }
 
 // Client on the websocket thread
@@ -47,12 +47,12 @@ impl WebSocketClient {
     }
 }
 
-impl qws::Handler for WebSocketClient {
+impl ws::Handler for WebSocketClient {
     fn on_shutdown(&mut self) {
         trace!("WebSocketClient::on_shutdown called");
     }
 
-    fn on_open(&mut self, shake: Handshake) -> qws::Result<()> {
+    fn on_open(&mut self, shake: Handshake) -> ws::Result<()> {
         if let Some(addr) = shake.remote_addr()? {
             let result = self.send(Message::Connected);
             match result {
@@ -67,15 +67,15 @@ impl qws::Handler for WebSocketClient {
         Ok(())
     }
 
-    fn on_message(&mut self, msg: qws::Message) -> qws::Result<()> {
+    fn on_message(&mut self, msg: ws::Message) -> ws::Result<()> {
         match msg {
-            qws::Message::Text(data) => {
+            ws::Message::Text(data) => {
                 let result = self.send(Message::StringMessage(data));
                 if let Err(err) = result {
                     error!("Handler::on_message: {}", err);
                 }
             }
-            qws::Message::Binary(_) => {
+            ws::Message::Binary(_) => {
                 trace!("Handler::on_message: Received binary data");
             }
         }
@@ -87,10 +87,10 @@ impl qws::Handler for WebSocketClient {
     }
 
     // Copied from trait for now
-    fn on_error(&mut self, err: qws::Error) {
+    fn on_error(&mut self, err: ws::Error) {
         // Ignore connection reset errors by default, but allow library clients to see them by
         // overriding this method if they want
-        if let qws::ErrorKind::Io(ref err) = err.kind {
+        if let ws::ErrorKind::Io(ref err) = err.kind {
             if let Some(104) = err.raw_os_error() {
                 return;
             }
@@ -119,11 +119,11 @@ impl WebSocketAdapter {
 #[derive(Debug)]
 pub enum WebSocketAdapterError {
     IOError,
-    WebSocketError(qws::Error),
+    WebSocketError(ws::Error),
 }
 
-impl From<qws::Error> for WebSocketAdapterError {
-    fn from(err: qws::Error) -> Self {
+impl From<ws::Error> for WebSocketAdapterError {
+    fn from(err: ws::Error) -> Self {
         WebSocketAdapterError::WebSocketError(err)
     }
 }
@@ -180,7 +180,7 @@ impl SocketAdapter for WebSocketAdapter {
 
         std::thread::spawn({
             move || {
-                qws::connect(addr, |out| {
+                ws::connect(addr, |out| {
                     let response = tx_init.send(out);
                     if let Err(err) = response {
                         error!("connect (Thread): Error sending data {}", err);
@@ -199,7 +199,7 @@ impl SocketAdapter for WebSocketAdapter {
         if let Some(ref sender) = self.tx_message {
             println!("Sending {:?}", data);
             return sender
-                .send(qws::Message::Text(data.to_owned()))
+                .send(ws::Message::Text(data.to_owned()))
                 .map_err(|err| err.into());
         }
 
